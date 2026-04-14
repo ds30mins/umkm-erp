@@ -3,10 +3,10 @@ import { createClient } from '@supabase/supabase-js';
 import {
   Plus, ShoppingBag, Package, X, CheckCircle2, Loader2, ChefHat,
   FlaskConical, Trash2, Utensils, ShoppingCart,
-  MapPin, Calendar, Truck, Send, Clock, ChevronDown,
+  MapPin, Calendar, Truck, Send, Clock, ChevronDown, ChevronUp,
   Minus, Coffee, Settings, BarChart2, TrendingUp, TrendingDown,
   Wallet, Edit2, AlertCircle, LogOut, Eye, EyeOff,
-  Store, CheckCircle, ArrowRight, Layers, Box, Wheat
+  Store, CheckCircle, ArrowRight, Layers, Box, Wheat, AlertTriangle
 } from 'lucide-react';
 
 // ─── SUPABASE CLIENT ───────────────────────────────────────────────────────────
@@ -16,9 +16,30 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────────
 const formatRupiah = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n || 0);
-const todayStr = () => new Date().toISOString().split('T')[0];
-const friendlyDate = (d) => { try { return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return '-'; } };
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
+const friendlyDate = (d) => { try { return new Date(d + 'T12:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return '-'; } };
 const slugify = (s) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+// ── Unit conversion helper for production
+// Returns qty in the "target" unit given qty in "from" unit.
+// If units are compatible (kg↔gr, lusin↔pcs), converts. Otherwise returns null (no conversion).
+const convertUnits = (qty, fromUnit, toUnit) => {
+  if (fromUnit === toUnit) return qty;
+  const f = fromUnit.toLowerCase().trim();
+  const t = toUnit.toLowerCase().trim();
+  if (f === 'kg' && t === 'gr') return qty * 1000;
+  if (f === 'gr' && t === 'kg') return qty / 1000;
+  if (f === 'kg' && t === 'g') return qty * 1000;
+  if (f === 'g' && t === 'kg') return qty / 1000;
+  if (f === 'lusin' && t === 'pcs') return qty * 12;
+  if (f === 'pcs' && t === 'lusin') return qty / 12;
+  if (f === 'liter' && (t === 'ml' || t === 'mL')) return qty * 1000;
+  if ((f === 'ml' || f === 'mL') && t === 'liter') return qty / 1000;
+  return null; // incompatible
+};
 
 const INVENTORY_TYPES = {
   raw: { label: 'Baku', short: 'Baku', color: '#3b82f6', bg: '#eff6ff', icon: Wheat },
@@ -44,19 +65,22 @@ const THEME = `
     --shadow-lg: 0 12px 40px rgba(0,0,0,0.12);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html { overflow-y: scroll; }, body { background: var(--bg); font-family: 'DM Sans', sans-serif; color: var(--text); font-size: 15px; -webkit-font-smoothing: antialiased; max-width: 640px; margin: 0 auto; }
+  html { overflow-y: scroll; }
+  body { background: var(--bg); font-family: 'DM Sans', sans-serif; color: var(--text); font-size: 15px; -webkit-font-smoothing: antialiased; max-width: 640px; margin: 0 auto; }
   .font-display { font-family: 'DM Sans', sans-serif; }
 
-  /* Scrollbars */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
 
-  /* Modal */
   .modal-overlay { position: fixed; inset: 0; z-index: 150; background: rgba(17,24,39,0.55); backdrop-filter: blur(8px); display: flex; align-items: flex-end; padding: 0; }
   @media (min-width: 640px) { .modal-overlay { align-items: center; justify-content: center; } .modal-sheet { max-width: 500px !important; border-radius: var(--radius) !important; margin: 0 auto; } }
   .modal-sheet { background: white; width: 100%; border-radius: 28px 28px 0 0; padding: 28px 24px 40px; max-height: 92vh; overflow-y: auto; animation: slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
   .modal-handle { width: 36px; height: 4px; background: var(--border-strong); border-radius: 99px; margin: 0 auto 20px; }
+
+  /* Confirm dialog overlay */
+  .confirm-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(17,24,39,0.65); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .confirm-box { background: white; border-radius: 24px; padding: 28px 24px; width: 100%; max-width: 360px; box-shadow: 0 24px 80px rgba(0,0,0,0.3); animation: fadeUp 0.2s ease; }
   
   @keyframes slideUp { from { transform: translateY(48px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -65,12 +89,10 @@ const THEME = `
   .animate-spin { animation: spin 1s linear infinite; }
   .animate-fade { animation: fadeUp 0.35s ease forwards; }
 
-  /* Cards */
   .card { background: white; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); }
   .card-hover { transition: box-shadow 0.15s, transform 0.1s; cursor: pointer; }
   .card-hover:active { transform: scale(0.99); box-shadow: var(--shadow); }
 
-  /* Buttons */
   .btn { border: none; border-radius: var(--radius-sm); padding: 14px 22px; font-weight: 700; font-size: 14px; cursor: pointer; width: 100%; letter-spacing: 0.01em; font-family: 'DM Sans', sans-serif; transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; gap: 8px; }
   .btn:active { transform: scale(0.98); }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -81,15 +103,12 @@ const THEME = `
   .btn-red { background: var(--red); color: white; }
   .btn-green { background: var(--green); color: white; }
   .btn-ghost { background: var(--bg); color: var(--text); border: 1.5px solid var(--border); }
-  .btn-google { background: white; color: #374151; border: 1.5px solid var(--border); box-shadow: var(--shadow); }
 
-  /* Inputs */
   .input { width: 100%; background: var(--bg); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 14px; font-weight: 500; font-family: 'DM Sans', sans-serif; color: var(--text); outline: none; transition: border-color 0.15s, background 0.15s; appearance: none; -webkit-appearance: none; }
   .input:focus { border-color: var(--navy); background: white; box-shadow: 0 0 0 3px rgba(17,24,39,0.06); }
   select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px; cursor: pointer; }
   .label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; display: block; }
 
-  /* Badges */
   .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 99px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
   .badge-green { background: var(--green-light); color: var(--green); }
   .badge-red { background: var(--red-light); color: var(--red); }
@@ -99,20 +118,16 @@ const THEME = `
   .badge-gray { background: #f3f4f6; color: var(--muted); }
   .badge-dark { background: var(--navy); color: white; }
 
-  /* Nav */
   .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; cursor: pointer; padding: 8px 12px; border-radius: 14px; transition: all 0.15s; color: #9ca3af; font-family: 'DM Sans', sans-serif; min-width: 52px; }
   .nav-item.active { color: var(--navy); background: var(--yellow); }
   .nav-item span { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; }
 
-  /* Auth */
   .auth-bg { min-height: 100vh; background: var(--navy); display: flex; align-items: center; justify-content: center; padding: 24px; }
   .auth-card { background: white; border-radius: 28px; padding: 36px 28px; width: 100%; max-width: 400px; box-shadow: 0 24px 80px rgba(0,0,0,0.4); animation: fadeUp 0.4s ease; }
 
-  /* Period dropdown */
   .period-select { background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.12); border-radius: 10px; color: white; padding: 7px 30px 7px 12px; font-size: 12px; font-weight: 700; font-family: 'DM Sans', sans-serif; cursor: pointer; outline: none; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
   .period-select-light { background: white; border: 1.5px solid var(--border); border-radius: 10px; color: var(--text); padding: 8px 30px 8px 12px; font-size: 12px; font-weight: 700; font-family: 'DM Sans', sans-serif; cursor: pointer; outline: none; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; box-shadow: var(--shadow); }
 
-  /* Misc */
   .divider { height: 1px; background: var(--border); margin: 14px 0; }
   .input-wrap { position: relative; }
   .input-wrap .input { padding-right: 44px; }
@@ -125,14 +140,19 @@ const THEME = `
   .cal-day.selected { background: var(--yellow) !important; color: var(--navy) !important; font-weight: 900; }
   input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.4); cursor: pointer; }
 
-  /* Module grid */
   .module-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .module-btn { background: white; border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px 16px; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; transition: all 0.15s; box-shadow: var(--shadow); }
+  .module-btn { background: white; border: 1.5px solid var(--border); border-radius: var(--radius); padding: 16px 14px; cursor: pointer; display: flex; flex-direction: row; align-items: center; gap: 12px; transition: all 0.15s; box-shadow: var(--shadow); }
   .module-btn:active { transform: scale(0.97); }
   .module-btn:hover { border-color: var(--navy); box-shadow: var(--shadow-md); }
 
-  /* PO badge */
   .po-tag { display: inline-flex; align-items: center; gap: 4px; background: #fef3c7; color: #d97706; padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 800; border: 1px solid #fde68a; }
+
+  /* Purchase item row in multi-item form */
+  .purchase-item-row { background: #f9fafb; border: 1.5px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+  .purchase-item-row:focus-within { border-color: var(--navy); background: white; }
+
+  /* Collapsible */
+  .collapsible-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
 `;
 
 // ─── AUTH SCREENS ──────────────────────────────────────────────────────────────
@@ -169,31 +189,17 @@ const AuthScreen = () => {
     setLoading(false);
   };
 
-  const handleForgot = async (e) => {
-    e.preventDefault(); setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
-    if (error) showMsg(error.message);
-    else showMsg('Link reset password sudah dikirim.', 'success');
-    setLoading(false);
-  };
-
-  const handleGoogle = async () => {
-    setLoading(true);
-    await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
-    setLoading(false);
-  };
-
   return (
     <div className="auth-bg">
       <style>{THEME}</style>
       <div className="auth-card">
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ width: 50, height: 50, background: '#111827', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px', background: '#111827' }}>
+          <div style={{ width: 50, height: 50, background: '#111827', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
             <Store size={24} color="white" />
           </div>
           <h1 className="font-display" style={{ fontSize: 22, fontWeight: 900, color: '#111827' }}>UMKM ERP</h1>
           <p style={{ fontSize: 13, color: '#6b7280', fontWeight: 500, marginTop: 4 }}>
-            {mode === 'login' ? 'Selamat datang kembali 👋' : mode === 'register' ? 'Buat akun baru' : 'Reset password'}
+            {mode === 'login' ? 'Selamat datang kembali 👋' : 'Buat akun baru'}
           </p>
         </div>
 
@@ -212,20 +218,7 @@ const AuthScreen = () => {
                 <button type="button" className="input-icon-right" onClick={() => setShowPass(p => !p)}>{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button>
               </div>
             </div>
-            <button type="button" onClick={() => setMode('forgot')} style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: 12, fontWeight: 700, cursor: 'pointer', textAlign: 'right', padding: 0 }}>Lupa password?</button>
             <button type="submit" disabled={loading} className="btn btn-dark">{loading ? <Loader2 size={17} className="animate-spin" /> : 'Masuk'}</button>
-            {/* Temporarily disabled
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '2px 0' }}>
-              <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-              <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>atau</span>
-              <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-            </div>
-            //Google
-            <button type="button" onClick={handleGoogle} disabled={loading} className="btn btn-google">
-              <svg width="17" height="17" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-              Masuk dengan Google
-            </button>//
-            */}
             <p style={{ textAlign: 'center', fontSize: 13, color: '#6b7280', fontWeight: 500, marginTop: 6 }}>
               Belum punya akun?{' '}
               <button type="button" onClick={() => setMode('register')} style={{ background: 'none', border: 'none', color: '#3b82f6', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>Daftar</button>
@@ -248,15 +241,6 @@ const AuthScreen = () => {
               Sudah punya akun?{' '}
               <button type="button" onClick={() => setMode('login')} style={{ background: 'none', border: 'none', color: '#3b82f6', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>Masuk</button>
             </p>
-          </form>
-        )}
-
-        {mode === 'forgot' && (
-          <form onSubmit={handleForgot} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <p style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Masukkan email kamu, kami kirim link reset password.</p>
-            <div><label className="label">Email</label><input required type="email" className="input" placeholder="email@kamu.com" value={email} onChange={e => setEmail(e.target.value)} /></div>
-            <button type="submit" disabled={loading} className="btn btn-dark">{loading ? <Loader2 size={17} className="animate-spin" /> : 'Kirim Link Reset'}</button>
-            <button type="button" onClick={() => setMode('login')} className="btn btn-ghost">← Kembali</button>
           </form>
         )}
       </div>
@@ -299,9 +283,11 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
   const [activeTab, setActiveTab] = useState('ringkasan');
   const [subTabGudang, setSubTabGudang] = useState('stok');
   const [showSettings, setShowSettings] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [selectedCalDay, setSelectedCalDay] = useState(null);
+  const [poCollapsed, setPoCollapsed] = useState(false);
 
   const [purchases, setPurchases] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -315,6 +301,9 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [editingTransaction, setEditingTransaction] = useState(null);
+  const [editingRecipe, setEditingRecipe] = useState(null);
+  const [editingPurchase, setEditingPurchase] = useState(null);
+  const [editingOrder, setEditingOrder] = useState(null);
 
   // Period filters — per tab
   const [pembelianPeriod, setPembelianPeriod] = useState('bulan_ini');
@@ -328,25 +317,30 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
   const [ringkasanTo, setRingkasanTo] = useState('');
   const [jadwalFilter, setJadwalFilter] = useState('hari_ini');
 
-  // Forms
-  const [purchaseForm, setPurchaseForm] = useState({ nama_barang: '', supplier: '', jumlah: '', satuan: 'pcs', harga_satuan: '', tanggal: todayStr() });
-  const [recipeForm, setRecipeForm] = useState({ nama: '', jumlah_output: 1, satuan_output: 'pcs', ingredients: [{ nama_bahan: '', qty: '', satuan: 'pcs', type: 'raw' }] });
+  // Multi-item purchase form: supplier + date shared, items array
+  const emptyPurchaseItem = () => ({ nama_barang: '', jumlah: '', satuan: 'pcs', harga_satuan: '' });
+  const [purchaseForm, setPurchaseForm] = useState({ supplier: '', tanggal: todayStr(), items: [emptyPurchaseItem()] });
+
+  const [recipeForm, setRecipeForm] = useState({ nama: '', jumlah_output: 1, satuan_output: 'pcs', output_type: 'finished', ingredients: [{ nama_bahan: '', qty: '', satuan: 'pcs' }] });
   const [prodForm, setProdForm] = useState({ recipe_id: '', qty: 1, tanggal: todayStr() });
-  
-  // NEW penjualan flow: step 1 = customer details, step 2 = item selection
+
+  // New penjualan flow
   const [orderStep, setOrderStep] = useState(1);
   const [cart, setCart] = useState([]);
   const [customerForm, setCustomerForm] = useState({ nama: '', wa: '', alamat: '', tgl_order: todayStr(), tgl_kirim: todayStr(), metode_bayar: 'Cash', status_bayar: 'Belum Bayar' });
-  
+
   const [removalForm, setRemovalForm] = useState({ alasan: 'Rusak', qty: 1 });
   const [priceForm, setPriceForm] = useState({ harga: '' });
   const [profileForm, setProfileForm] = useState({ nama_umkm: '', nama_user: '', tentang: '', domisili: '' });
-  const [newItemForm, setNewItemForm] = useState({ nama: '', satuan: 'pcs', type: 'raw', stok: 0, harga: 0 });
 
   const uid = user.id;
 
   const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
-  const closeModal = () => { setActiveModal(null); setSelectedItem(null); setEditingTransaction(null); setOrderStep(1); };
+  const closeModal = () => {
+    setActiveModal(null); setSelectedItem(null); setEditingTransaction(null);
+    setEditingRecipe(null); setEditingPurchase(null); setEditingOrder(null);
+    setOrderStep(1);
+  };
 
   // ── Data fetching
   const fetchAll = useCallback(async () => {
@@ -383,37 +377,74 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
     if (period === 'hari_ini') return { from: todayStr(), to: todayStr() };
     if (period === 'minggu_ini') {
       const d = new Date(now); d.setDate(now.getDate() - now.getDay());
-      return { from: d.toISOString().split('T')[0], to: todayStr() };
+      return { from: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`, to: todayStr() };
     }
-    if (period === 'bulan_ini') return { from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0], to: todayStr() };
+    if (period === 'bulan_ini') {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { from: `${first.getFullYear()}-${String(first.getMonth()+1).padStart(2,'0')}-01`, to: todayStr() };
+    }
     return { from, to };
   };
 
-  // ── PEMBELIAN
+  // ── PEMBELIAN (multi-item)
   const handleAddPurchase = async (e) => {
     e.preventDefault();
     if (isSaving) return;
+    const validItems = purchaseForm.items.filter(it => it.nama_barang.trim() && it.jumlah && it.harga_satuan);
+    if (validItems.length === 0) { showToast('Isi minimal 1 barang', 'error'); return; }
     setIsSaving(true);
-    const qty = Number(purchaseForm.jumlah);
-    const price = Number(purchaseForm.harga_satuan);
-    const total = qty * price;
-    const slug = slugify(purchaseForm.nama_barang);
     try {
-      await supabase.from('purchases').insert({ user_id: uid, nama_barang: purchaseForm.nama_barang, supplier: purchaseForm.supplier, jumlah: qty, satuan: purchaseForm.satuan, harga_satuan: price, total_harga: total, tanggal: purchaseForm.tanggal });
-      const { data: existing } = await supabase.from('inventory').select('*').eq('user_id', uid).eq('id', slug).single();
-      if (existing) {
-        await supabase.from('inventory').update({ stok: existing.stok + qty }).eq('user_id', uid).eq('id', slug);
-      } else {
-        await supabase.from('inventory').insert({ id: slug, user_id: uid, nama: purchaseForm.nama_barang, stok: qty, satuan: purchaseForm.satuan, type: 'raw', harga: 0 });
+      for (const item of validItems) {
+        const qty = Number(item.jumlah);
+        const price = Number(item.harga_satuan);
+        const total = qty * price;
+        const slug = slugify(item.nama_barang);
+        await supabase.from('purchases').insert({ user_id: uid, nama_barang: item.nama_barang, supplier: purchaseForm.supplier, jumlah: qty, satuan: item.satuan, harga_satuan: price, total_harga: total, tanggal: purchaseForm.tanggal });
+        const { data: existing } = await supabase.from('inventory').select('*').eq('user_id', uid).eq('id', slug).single();
+        if (existing) {
+          // If units match or can be converted
+          const converted = convertUnits(qty, item.satuan, existing.satuan);
+          const addQty = converted !== null ? converted : qty;
+          await supabase.from('inventory').update({ stok: existing.stok + addQty }).eq('user_id', uid).eq('id', slug);
+        } else {
+          await supabase.from('inventory').insert({ id: slug, user_id: uid, nama: item.nama_barang, stok: qty, satuan: item.satuan, type: 'raw', harga: 0 });
+        }
       }
-      showToast('Pembelian disimpan ✓');
+      showToast(`${validItems.length} barang disimpan ✓`);
       closeModal();
-      setPurchaseForm({ nama_barang: '', supplier: '', jumlah: '', satuan: 'pcs', harga_satuan: '', tanggal: todayStr() });
+      setPurchaseForm({ supplier: '', tanggal: todayStr(), items: [emptyPurchaseItem()] });
       fetchAll();
     } catch (err) { showToast('Gagal: ' + err.message, 'error'); } finally { setIsSaving(false); }
   };
 
-  // ── RESEP (now supports raw, semi, finished as ingredients/output)
+  // ── EDIT PURCHASE (nama, jumlah, tanggal)
+  const handleEditPurchase = async (e) => {
+    e.preventDefault();
+    if (isSaving || !editingPurchase) return;
+    setIsSaving(true);
+    try {
+      const qty = Number(editingPurchase._newJumlah);
+      const price = Number(editingPurchase.harga_satuan);
+      const total = qty * price;
+      const qtyDiff = qty - editingPurchase.jumlah;
+      await supabase.from('purchases').update({
+        nama_barang: editingPurchase._newNama,
+        jumlah: qty,
+        total_harga: total,
+        tanggal: editingPurchase._newDate
+      }).eq('user_id', uid).eq('id', editingPurchase.id);
+      // Update inventory stock by the diff
+      const slug = slugify(editingPurchase._newNama);
+      const { data: inv } = await supabase.from('inventory').select('*').eq('user_id', uid).eq('id', slug).single();
+      if (inv && qtyDiff !== 0) {
+        await supabase.from('inventory').update({ stok: Math.max(0, inv.stok + qtyDiff) }).eq('user_id', uid).eq('id', slug);
+      }
+      showToast('Pembelian diperbarui ✓');
+      closeModal(); fetchAll();
+    } catch (err) { showToast('Gagal: ' + err.message, 'error'); } finally { setIsSaving(false); }
+  };
+
+  // ── RESEP
   const handleAddRecipe = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -430,7 +461,21 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
     } catch (err) { showToast('Gagal: ' + err.message, 'error'); } finally { setIsSaving(false); }
   };
 
-  // ── PRODUKSI
+  // ── EDIT RESEP
+  const handleEditRecipe = async (e) => {
+    e.preventDefault();
+    if (isSaving || !editingRecipe) return;
+    setIsSaving(true);
+    try {
+      await supabase.from('recipes').update({ nama: editingRecipe.nama, jumlah_output: Number(editingRecipe.jumlah_output), satuan_output: editingRecipe.satuan_output, output_type: editingRecipe.output_type || 'finished' }).eq('user_id', uid).eq('id', editingRecipe.id);
+      await supabase.from('recipe_ingredients').delete().eq('recipe_id', editingRecipe.id);
+      await supabase.from('recipe_ingredients').insert(editingRecipe.recipe_ingredients.map(ing => ({ recipe_id: editingRecipe.id, user_id: uid, nama_bahan: ing.nama_bahan, qty: Number(ing.qty), satuan: ing.satuan })));
+      showToast('Resep diperbarui ✓');
+      closeModal(); fetchAll();
+    } catch (err) { showToast('Gagal: ' + err.message, 'error'); } finally { setIsSaving(false); }
+  };
+
+  // ── PRODUKSI (with unit conversion)
   const handleProduction = async (e) => {
     e.preventDefault();
     if (isSaving || !prodForm.recipe_id) return;
@@ -443,16 +488,25 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
       for (const ing of ingredients) {
         const slug = slugify(ing.nama_bahan);
         const { data: inv } = await supabase.from('inventory').select('*').eq('user_id', uid).eq('id', slug).single();
-        if (!inv) throw new Error(`Bahan ${ing.nama_bahan} tidak ada di stok`);
-        const needed = Number(ing.qty) * multiplier;
-        if (inv.stok < needed) throw new Error(`Stok ${ing.nama_bahan} kurang (butuh ${needed}, ada ${inv.stok})`);
+        if (!inv) throw new Error(`Bahan "${ing.nama_bahan}" tidak ada di stok`);
+        const neededInIngUnit = Number(ing.qty) * multiplier;
+        // Convert needed qty from recipe unit to inventory unit
+        const neededConverted = convertUnits(neededInIngUnit, ing.satuan, inv.satuan);
+        const needed = neededConverted !== null ? neededConverted : neededInIngUnit;
+        if (inv.stok < needed) {
+          const stockDisplay = `${inv.stok} ${inv.satuan}`;
+          const needDisplay = `${needed} ${inv.satuan}`;
+          throw new Error(`Stok "${ing.nama_bahan}" kurang (butuh ${needDisplay}, ada ${stockDisplay})`);
+        }
         await supabase.from('inventory').update({ stok: inv.stok - needed }).eq('user_id', uid).eq('id', slug);
       }
       const prodSlug = slugify(recipe.nama);
       const outType = recipe.output_type || 'finished';
       const { data: existing } = await supabase.from('inventory').select('*').eq('user_id', uid).eq('id', prodSlug).single();
       if (existing) {
-        await supabase.from('inventory').update({ stok: existing.stok + outputQty }).eq('user_id', uid).eq('id', prodSlug);
+        const addConverted = convertUnits(outputQty, recipe.satuan_output, existing.satuan);
+        const addQty = addConverted !== null ? addConverted : outputQty;
+        await supabase.from('inventory').update({ stok: existing.stok + addQty }).eq('user_id', uid).eq('id', prodSlug);
       } else {
         await supabase.from('inventory').insert({ id: prodSlug, user_id: uid, nama: recipe.nama, stok: outputQty, satuan: recipe.satuan_output, type: outType, harga: 0 });
       }
@@ -505,7 +559,6 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
       const { data: order } = await supabase.from('orders').insert({ user_id: uid, nama: customerForm.nama, wa: customerForm.wa, alamat: customerForm.alamat, tgl_order: customerForm.tgl_order, tgl_kirim: customerForm.tgl_kirim, metode_bayar: customerForm.metode_bayar, status_bayar: customerForm.status_bayar, delivery_status: 'Menunggu', total, status: 'Pesanan Baru', is_po: customerForm.tgl_kirim > todayStr() }).select().single();
       if (order) {
         await supabase.from('order_items').insert(cart.map(item => ({ order_id: order.id, user_id: uid, nama: item.nama, qty: item.qty, harga: item.harga })));
-        // Only deduct stock if NOT a pre-order (tgl_kirim is today or past)
         if (customerForm.tgl_kirim <= todayStr()) {
           for (const item of cart) {
             const { data: inv } = await supabase.from('inventory').select('stok').eq('user_id', uid).eq('id', item.id).single();
@@ -521,6 +574,26 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
     } catch (err) { showToast('Gagal: ' + err.message, 'error'); } finally { setIsSaving(false); }
   };
 
+  // ── EDIT ORDER (dates + items)
+  const handleEditOrder = async (e) => {
+    e.preventDefault();
+    if (isSaving || !editingOrder) return;
+    setIsSaving(true);
+    try {
+      const newTotal = (editingOrder.order_items || []).reduce((a, it) => a + it.qty * (it.harga || 0), 0);
+      await supabase.from('orders').update({
+        tgl_order: editingOrder.tgl_order,
+        tgl_kirim: editingOrder.tgl_kirim,
+        total: newTotal,
+      }).eq('user_id', uid).eq('id', editingOrder.id);
+      // Re-insert order_items
+      await supabase.from('order_items').delete().eq('order_id', editingOrder.id);
+      await supabase.from('order_items').insert(editingOrder.order_items.map(it => ({ order_id: editingOrder.id, user_id: uid, nama: it.nama, qty: it.qty, harga: it.harga })));
+      showToast('Pesanan diperbarui ✓');
+      closeModal(); fetchAll();
+    } catch (err) { showToast('Gagal: ' + err.message, 'error'); } finally { setIsSaving(false); }
+  };
+
   const confirmPayment = async (orderId) => {
     await supabase.from('orders').update({ status_bayar: 'Lunas' }).eq('user_id', uid).eq('id', orderId);
     showToast('Pembayaran dikonfirmasi ✓');
@@ -528,7 +601,6 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
   };
 
   const cancelOrder = async (order) => {
-    // Restore stock only if it was already deducted (non-PO orders)
     if (!order.is_po) {
       for (const item of order.order_items || []) {
         const { data: inv } = await supabase.from('inventory').select('stok').eq('user_id', uid).eq('id', slugify(item.nama)).single();
@@ -541,23 +613,8 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
     fetchAll();
   };
 
-  const handleEditPurchaseDate = async (e) => {
-    e.preventDefault(); setIsSaving(true);
-    await supabase.from('purchases').update({ tanggal: editingTransaction._newDate }).eq('user_id', uid).eq('id', editingTransaction.id);
-    showToast('Tanggal diperbarui ✓');
-    closeModal(); fetchAll(); setIsSaving(false);
-  };
-
-  const handleEditOrderDates = async (e) => {
-    e.preventDefault(); setIsSaving(true);
-    await supabase.from('orders').update({ tgl_order: editingTransaction._newTglOrder, tgl_kirim: editingTransaction._newTglKirim }).eq('user_id', uid).eq('id', editingTransaction.id);
-    showToast('Tanggal diperbarui ✓');
-    closeModal(); fetchAll(); setIsSaving(false);
-  };
-
   const updateDeliveryStatus = async (orderId, status) => {
     await supabase.from('orders').update({ delivery_status: status }).eq('user_id', uid).eq('id', orderId);
-    // If marking as "Dikirim" for a PO, deduct stock now
     if (status === 'Dikirim') {
       const order = orders.find(o => o.id === orderId);
       if (order && order.is_po) {
@@ -580,9 +637,14 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
 
   const handleSaveProfile = async (e) => {
     e.preventDefault(); setIsSaving(true);
-    await supabase.from('profiles').upsert({ user_id: uid, ...profileForm });
-    setProfile(profileForm); onProfileUpdate(profileForm);
-    showToast('Profil disimpan ✓');
+    const { error } = await supabase.from('profiles').upsert({ user_id: uid, ...profileForm });
+    if (!error) {
+      const updated = { ...profile, ...profileForm };
+      setProfile(updated); onProfileUpdate(updated);
+      showToast('Profil disimpan ✓');
+    } else {
+      showToast('Gagal simpan profil', 'error');
+    }
     setShowSettings(false); setIsSaving(false);
   };
 
@@ -602,14 +664,14 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
     return orders.filter(o => o.tgl_order >= from && o.tgl_order <= to);
   }, [orders, penjualanPeriod, penjualanFrom, penjualanTo]);
 
-  // ── Upcoming POs — orders with tgl_kirim in the future
+  // ── Upcoming POs
   const upcomingPOs = useMemo(() => orders.filter(o => o.is_po || o.tgl_kirim > todayStr()), [orders]);
 
   // ── Delivery list
   const deliveryList = useMemo(() => {
     const tod = todayStr();
     const tom = new Date(); tom.setDate(tom.getDate() + 1);
-    const tomStr = tom.toISOString().split('T')[0];
+    const tomStr = `${tom.getFullYear()}-${String(tom.getMonth()+1).padStart(2,'0')}-${String(tom.getDate()).padStart(2,'0')}`;
     if (selectedCalDay) return orders.filter(o => o.tgl_kirim === selectedCalDay);
     return orders.filter(o => {
       if (!o.tgl_kirim) return false;
@@ -632,21 +694,24 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
     paidOrders.forEach(o => (o.order_items || []).forEach(it => { produkMap[it.nama] = (produkMap[it.nama] || 0) + it.qty; }));
     const topProduk = Object.entries(produkMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
     const totalOrders = orders.filter(o => inRange(o.tgl_order)).length;
-    const selesai = orders.filter(o => inRange(o.tgl_order) && o.delivery_status === 'Selesai').length;
-    return { pemasukan, pengeluaran, laba: pemasukan - pengeluaran, topProduk, totalOrders, selesai };
-  }, [orders, purchases, ringkasanPeriod, ringkasanFrom, ringkasanTo]);
+    const totalPO = upcomingPOs.length;
+    return { pemasukan, pengeluaran, laba: pemasukan - pengeluaran, topProduk, totalOrders, totalPO };
+  }, [orders, purchases, upcomingPOs, ringkasanPeriod, ringkasanFrom, ringkasanTo]);
 
-  // ── Calendar
+  // ── Calendar — fix timezone offset by using local date components
   const MONTHS_ID = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
   const DAYS_ID = ['M','S','S','R','K','J','S'];
   const calDays = useMemo(() => {
     const y = calendarDate.getFullYear(), m = calendarDate.getMonth();
     const first = new Date(y, m, 1).getDay();
     const days = Array(first).fill(null);
-    for (let d = 1; d <= new Date(y, m + 1, 0).getDate(); d++) days.push(new Date(y, m, d));
+    for (let d = 1; d <= new Date(y, m + 1, 0).getDate(); d++) days.push({ y, m, d });
     const orderDates = new Set(orders.map(o => o.tgl_kirim).filter(Boolean));
     return { days, orderDates };
   }, [calendarDate, orders]);
+
+  // Convert day object to YYYY-MM-DD string (no timezone shift)
+  const dayToStr = ({ y, m, d }) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
   // ── Period options
   const PERIOD_OPTIONS = [
@@ -669,7 +734,7 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
     </div>
   );
 
-  // ── MODULES for dashboard
+  // ── MODULES
   const MODULES = [
     { key: 'pembelian', icon: ShoppingBag, label: 'Pembelian', color: '#3b82f6', bg: '#eff6ff', desc: 'Catat bahan masuk' },
     { key: 'gudang', icon: Package, label: 'Gudang', color: '#8b5cf6', bg: '#f5f3ff', desc: 'Kelola stok & resep' },
@@ -691,65 +756,83 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
         </div>
       )}
 
+      {/* LOGOUT CONFIRM DIALOG */}
+      {showLogoutConfirm && (
+        <div className="confirm-overlay">
+          <div className="confirm-box">
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+              <div style={{ width: 52, height: 52, background: '#fef2f2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+                <LogOut size={22} color="#ef4444" />
+              </div>
+              <h3 style={{ fontWeight: 900, fontSize: 17, marginBottom: 6 }}>Keluar?</h3>
+              <p style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Kamu yakin ingin keluar dari akun ini?</p>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowLogoutConfirm(false)} className="btn btn-ghost" style={{ flex: 1 }}>Batal</button>
+              <button onClick={handleLogout} className="btn btn-red" style={{ flex: 1 }}>Ya, Keluar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* HEADER */}
-      <header style={{ background: '#111827', padding: '52px 20px 18px', position: 'sticky', top: 0, zIndex: 40, boxShadow: '0 2px 20px rgba(0,0,0,0.15)' }}>
+      <header style={{ background: '#111827', padding: '32px 20px 14px', position: 'sticky', top: 0, zIndex: 40, boxShadow: '0 2px 20px rgba(0,0,0,0.15)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            {/* Only show greeting in ringkasan */}
+          <div style={{ minWidth: 0, flex: 1, marginRight: 10 }}>
             {activeTab === 'ringkasan' && profile?.nama_user && (
-              <p style={{ color: '#9ca3af', fontSize: 12, fontWeight: 500, marginBottom: 2 }}>Halo, {profile.nama_user} 👋</p>
+              <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 500, marginBottom: 1 }}>Halo, {profile.nama_user} 👋</p>
             )}
-            <h1 className="font-display" style={{ color: 'white', fontSize: activeTab === 'ringkasan' ? 22 : 19, fontWeight: 900, letterSpacing: '-0.02em' }}>
+            <h1 className="font-display" style={{ color: 'white', fontSize: activeTab === 'ringkasan' ? 20 : 17, fontWeight: 900, letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {activeTab === 'ringkasan' ? (profile?.nama_umkm || 'Dashboard') : { pembelian: 'Pembelian', gudang: 'Gudang', penjualan: 'Penjualan', jadwal: 'Jadwal Kirim' }[activeTab]}
             </h1>
             {activeTab === 'ringkasan' && profile?.domisili && (
-              <p style={{ color: '#6b7280', fontSize: 11, marginTop: 2 }}>📍 {profile.domisili}</p>
+              <p style={{ color: '#6b7280', fontSize: 10, marginTop: 1 }}>📍 {profile.domisili}</p>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {/* Period dropdowns in header for relevant tabs */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
             {activeTab === 'ringkasan' && <PeriodDropdown value={ringkasanPeriod} onChange={setRingkasanPeriod} dark />}
             {activeTab === 'pembelian' && <PeriodDropdown value={pembelianPeriod} onChange={setPembelianPeriod} dark />}
             {activeTab === 'penjualan' && <PeriodDropdown value={penjualanPeriod} onChange={setPenjualanPeriod} dark />}
-            {/* Action buttons */}
             {activeTab === 'pembelian' && (
-              <button onClick={() => setActiveModal('beli')} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Tambah</button>
+              <button onClick={() => setActiveModal('beli')} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Plus size={14} /> Tambah</button>
             )}
             {activeTab === 'penjualan' && (
-              <button onClick={() => { setOrderStep(1); setActiveModal('newOrder'); }} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Order</button>
+              <button onClick={() => { setOrderStep(1); setActiveModal('newOrder'); }} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Plus size={14} /> Order</button>
             )}
             {activeTab === 'gudang' && subTabGudang === 'stok' && (
-              <button onClick={() => setActiveModal('produksi')} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><ChefHat size={14} /> Produksi</button>
+              <button onClick={() => setActiveModal('produksi')} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Plus size={14} /> Produksi</button>
             )}
             {activeTab === 'gudang' && subTabGudang === 'resep' && (
-              <button onClick={() => setActiveModal('resep')} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Resep</button>
+              <button onClick={() => setActiveModal('resep')} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Plus size={14} /> Resep</button>
             )}
-            {activeTab === 'jadwal' && selectedCalDay && (
-              <button onClick={() => { setCustomerForm(f => ({ ...f, tgl_kirim: selectedCalDay })); setOrderStep(1); setActiveModal('newOrder'); }} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Order</button>
+            {/* Jadwal: always show + Order button */}
+            {activeTab === 'jadwal' && (
+              <button onClick={() => { if (selectedCalDay) setCustomerForm(f => ({ ...f, tgl_kirim: selectedCalDay })); setOrderStep(1); setActiveModal('newOrder'); }} style={{ background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Plus size={14} /> Order</button>
             )}
-            <button onClick={() => { setProfileForm({ nama_umkm: profile?.nama_umkm || '', nama_user: profile?.nama_user || '', tentang: profile?.tentang || '', domisili: profile?.domisili || '' }); setShowSettings(true); }} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 8, cursor: 'pointer', color: '#9ca3af', display: 'flex', alignItems: 'center' }}><Settings size={17} /></button>
+            {/* Settings button: only in ringkasan */}
+            {activeTab === 'ringkasan' && (
+              <button onClick={() => { setProfileForm({ nama_umkm: profile?.nama_umkm || '', nama_user: profile?.nama_user || '', tentang: profile?.tentang || '', domisili: profile?.domisili || '' }); setShowSettings(true); }} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 8, cursor: 'pointer', color: '#9ca3af', display: 'flex', alignItems: 'center' }}><Settings size={17} /></button>
+            )}
           </div>
         </div>
 
-        {/* Sub-tabs for gudang */}
         {activeTab === 'gudang' && (
-          <div style={{ display: 'flex', gap: 4, marginTop: 14, background: 'rgba(255,255,255,0.06)', padding: 4, borderRadius: 12 }}>
+          <div style={{ display: 'flex', gap: 4, marginTop: 12, background: 'rgba(255,255,255,0.06)', padding: 4, borderRadius: 12 }}>
             {[['stok', 'Stok'], ['resep', 'Resep'], ['riwayat', 'Riwayat']].map(([key, label]) => (
               <button key={key} onClick={() => setSubTabGudang(key)} style={{ flex: 1, padding: '7px 4px', borderRadius: 9, border: 'none', fontSize: 11, fontWeight: 700, cursor: 'pointer', background: subTabGudang === key ? 'white' : 'transparent', color: subTabGudang === key ? '#111827' : 'rgba(255,255,255,0.4)', transition: 'all 0.15s' }}>{label}</button>
             ))}
           </div>
         )}
 
-        {/* Sub-tabs for jadwal */}
         {activeTab === 'jadwal' && !selectedCalDay && (
-          <div style={{ display: 'flex', gap: 4, marginTop: 14, background: 'rgba(255,255,255,0.06)', padding: 4, borderRadius: 12 }}>
+          <div style={{ display: 'flex', gap: 4, marginTop: 12, background: 'rgba(255,255,255,0.06)', padding: 4, borderRadius: 12 }}>
             {[['hari_ini', 'Hari Ini'], ['besok', 'Besok'], ['mendatang', 'Mendatang']].map(([key, label]) => (
               <button key={key} onClick={() => setJadwalFilter(key)} style={{ flex: 1, padding: '7px 4px', borderRadius: 9, border: 'none', fontSize: 11, fontWeight: 700, cursor: 'pointer', background: jadwalFilter === key ? 'white' : 'transparent', color: jadwalFilter === key ? '#111827' : 'rgba(255,255,255,0.4)', transition: 'all 0.15s' }}>{label}</button>
             ))}
           </div>
         )}
         {activeTab === 'jadwal' && selectedCalDay && (
-          <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600 }}>Tanggal: {selectedCalDay}</span>
             <button onClick={() => setSelectedCalDay(null)} style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: 'none', borderRadius: 7, padding: '3px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Reset</button>
           </div>
@@ -758,52 +841,57 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
 
       <main style={{ padding: '16px 16px 0', width: '100%', boxSizing: 'border-box' }}>
 
-        {/* Custom date range bars */}
         {activeTab === 'pembelian' && pembelianPeriod === 'custom' && <div style={{ marginBottom: 12 }}><CustomDateRange from={pembelianFrom} setFrom={setPembelianFrom} to={pembelianTo} setTo={setPembelianTo} /></div>}
         {activeTab === 'penjualan' && penjualanPeriod === 'custom' && <div style={{ marginBottom: 12 }}><CustomDateRange from={penjualanFrom} setFrom={setPenjualanFrom} to={penjualanTo} setTo={setPenjualanTo} /></div>}
         {activeTab === 'ringkasan' && ringkasanPeriod === 'custom' && <div style={{ marginBottom: 12 }}><CustomDateRange from={ringkasanFrom} setFrom={setRingkasanFrom} to={ringkasanTo} setTo={setRingkasanTo} /></div>}
 
-        {/* ── RINGKASAN (Dashboard) ── */}
+        {/* ── RINGKASAN ── */}
         {activeTab === 'ringkasan' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, width: '100%' }}>
-            {/* Big 3 numbers */}
-            <div style={{ background: '#111827', borderRadius: 20, padding: '20px 20px 22px', color: 'white' }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Laba Kotor</p>
-              <p className="font-display" style={{ fontSize: 32, fontWeight: 900, letterSpacing: '-0.02em', color: ringkasanData.laba >= 0 ? '#fde047' : '#f87171' }}>{formatRupiah(ringkasanData.laba)}</p>
-              <div style={{ display: 'flex', gap: 16, marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+            <div style={{ background: '#111827', borderRadius: 20, padding: '18px 20px 20px', color: 'white' }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Laba Kotor</p>
+              <p className="font-display" style={{ fontSize: 28, fontWeight: 900, letterSpacing: '-0.02em', color: ringkasanData.laba >= 0 ? '#fde047' : '#f87171' }}>{formatRupiah(ringkasanData.laba)}</p>
+              <div style={{ display: 'flex', gap: 12, marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.07)', flexWrap: 'wrap' }}>
                 <div>
-                  <p style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, marginBottom: 2 }}>↑ Masuk</p>
-                  <p style={{ fontWeight: 800, fontSize: 14, color: '#86efac' }}>{formatRupiah(ringkasanData.pemasukan)}</p>
+                  <p style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, marginBottom: 1 }}>↑ Masuk</p>
+                  <p style={{ fontWeight: 800, fontSize: 13, color: '#86efac' }}>{formatRupiah(ringkasanData.pemasukan)}</p>
                 </div>
                 <div style={{ width: 1, background: 'rgba(255,255,255,0.07)' }} />
                 <div>
-                  <p style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, marginBottom: 2 }}>↓ Keluar</p>
-                  <p style={{ fontWeight: 800, fontSize: 14, color: '#fca5a5' }}>{formatRupiah(ringkasanData.pengeluaran)}</p>
+                  <p style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, marginBottom: 1 }}>↓ Keluar</p>
+                  <p style={{ fontWeight: 800, fontSize: 13, color: '#fca5a5' }}>{formatRupiah(ringkasanData.pengeluaran)}</p>
                 </div>
                 <div style={{ width: 1, background: 'rgba(255,255,255,0.07)' }} />
                 <div>
-                  <p style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, marginBottom: 2 }}>Pesanan</p>
-                  <p style={{ fontWeight: 800, fontSize: 14, color: 'white' }}>{ringkasanData.totalOrders}</p>
+                  <p style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, marginBottom: 1 }}>Pesanan</p>
+                  <p style={{ fontWeight: 800, fontSize: 13, color: 'white' }}>{ringkasanData.totalOrders}</p>
                 </div>
+                {ringkasanData.totalPO > 0 && (
+                  <>
+                    <div style={{ width: 1, background: 'rgba(255,255,255,0.07)' }} />
+                    <div>
+                      <p style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, marginBottom: 1 }}>PO Mendatang</p>
+                      <p style={{ fontWeight: 800, fontSize: 13, color: '#fde047' }}>{ringkasanData.totalPO}</p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Module quick-access grid */}
             <div className="module-grid">
               {MODULES.map(({ key, icon: Icon, label, color, bg, desc }) => (
                 <button key={key} className="module-btn" onClick={() => setActiveTab(key)}>
-                  <div style={{ width: 40, height: 40, borderRadius: 12, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Icon size={20} color={color} />
+                  <div style={{ width: 38, height: 38, borderRadius: 11, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon size={19} color={color} />
                   </div>
-                  <div style={{ textAlign: 'left' }}>
-                    <p style={{ fontWeight: 800, fontSize: 14, marginBottom: 1 }}>{label}</p>
-                    <p style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500 }}>{desc}</p>
+                  <div style={{ textAlign: 'left', minWidth: 0 }}>
+                    <p style={{ fontWeight: 800, fontSize: 13, marginBottom: 1 }}>{label}</p>
+                    <p style={{ fontSize: 10, color: '#9ca3af', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{desc}</p>
                   </div>
                 </button>
               ))}
             </div>
 
-            {/* Top products */}
             {ringkasanData.topProduk.length > 0 && (
               <div className="card" style={{ padding: 18 }}>
                 <p style={{ fontWeight: 800, fontSize: 13, marginBottom: 12, color: '#374151' }}>Top Produk Terjual</p>
@@ -817,7 +905,6 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
               </div>
             )}
 
-            {/* Upcoming POs alert */}
             {upcomingPOs.length > 0 && (
               <div style={{ background: '#fefce8', border: '1.5px solid #fde68a', borderRadius: 16, padding: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -837,9 +924,9 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
         {/* ── PEMBELIAN ── */}
         {activeTab === 'pembelian' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-            <div style={{ background: '#111827', borderRadius: 16, padding: '16px 20px', color: 'white', marginBottom: 4 }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Total Pengeluaran</p>
-              <p className="font-display" style={{ fontSize: 26, fontWeight: 900, color: '#fde047' }}>{formatRupiah(filteredPurchases.reduce((a, p) => a + (p.total_harga || 0), 0))}</p>
+            <div style={{ background: '#111827', borderRadius: 16, padding: '14px 18px', color: 'white', marginBottom: 4 }}>
+              <p style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>Total Pengeluaran</p>
+              <p className="font-display" style={{ fontSize: 24, fontWeight: 900, color: '#fde047' }}>{formatRupiah(filteredPurchases.reduce((a, p) => a + (p.harga_satuan * p.jumlah || 0), 0))}</p>
             </div>
             {filteredPurchases.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 0', color: '#9ca3af' }}>
@@ -858,8 +945,8 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <p style={{ fontWeight: 800, fontSize: 13 }}>{formatRupiah(p.total_harga)}</p>
-                  <button onClick={() => { setEditingTransaction({ ...p, _newDate: p.tanggal }); setActiveModal('editTanggalBeli'); }} style={{ background: '#f3f4f6', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: '#9ca3af', display: 'flex' }}><Edit2 size={13} /></button>
+                  <p style={{ fontWeight: 800, fontSize: 13 }}>{formatRupiah(p.harga_satuan * p.jumlah)}</p>
+                  <button onClick={() => { setEditingPurchase({ ...p, _newNama: p.nama_barang, _newJumlah: p.jumlah, _newDate: p.tanggal }); setActiveModal('editPembelian'); }} style={{ background: '#f3f4f6', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: '#9ca3af', display: 'flex' }}><Edit2 size={13} /></button>
                 </div>
               </div>
             ))}
@@ -871,12 +958,11 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
           <div>
             {subTabGudang === 'stok' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {/* Summary chips */}
                 <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
                   {Object.entries(INVENTORY_TYPES).map(([type, cfg]) => {
                     const count = inventory.filter(i => i.type === type).length;
                     return (
-                      <div key={type} style={{ background: cfg.bg, borderRadius: 12, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      <div key={type} style={{ background: cfg.bg, borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                         <cfg.icon size={14} color={cfg.color} />
                         <span style={{ fontWeight: 700, fontSize: 12, color: cfg.color }}>{cfg.label}</span>
                         <span style={{ fontWeight: 900, fontSize: 16, color: '#111827' }}>{count}</span>
@@ -927,6 +1013,7 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
                       <Utensils size={15} color="#d97706" />
                       <p style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{r.nama}</p>
                       <span className="badge badge-yellow">{r.jumlah_output} {r.satuan_output}/batch</span>
+                      <button onClick={() => { setEditingRecipe({ ...r, recipe_ingredients: (r.recipe_ingredients || []).map(i => ({ ...i })) }); setActiveModal('editResep'); }} style={{ background: '#f3f4f6', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: '#6b7280', display: 'flex' }}><Edit2 size={13} /></button>
                     </div>
                     <div style={{ background: '#f9fafb', borderRadius: 10, padding: 10 }}>
                       {(r.recipe_ingredients || []).map((ing, i) => (
@@ -963,40 +1050,63 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
         {/* ── PENJUALAN ── */}
         {activeTab === 'penjualan' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Revenue summary */}
-            <div style={{ background: '#111827', borderRadius: 16, padding: '16px 20px', color: 'white' }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Total Penjualan (Lunas)</p>
-              <p className="font-display" style={{ fontSize: 26, fontWeight: 900, color: '#86efac' }}>
-                {formatRupiah(filteredOrders.filter(o => o.status_bayar === 'Lunas').reduce((a, o) => a + (o.total || 0), 0))}
-              </p>
+            {/* Revenue summary: two columns */}
+            <div style={{ background: '#111827', borderRadius: 16, padding: '14px 18px', color: 'white', display: 'flex', gap: 14 }}>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>Total (Lunas)</p>
+                <p className="font-display" style={{ fontSize: 18, fontWeight: 900, color: '#86efac' }}>
+                  {formatRupiah(filteredOrders.filter(o => o.status_bayar === 'Lunas').reduce((a, o) => a + (o.total || 0), 0))}
+                </p>
+              </div>
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.07)' }} />
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>Belum Lunas</p>
+                <p className="font-display" style={{ fontSize: 18, fontWeight: 900, color: '#fca5a5' }}>
+                  {formatRupiah(filteredOrders.filter(o => o.status_bayar !== 'Lunas').reduce((a, o) => a + (o.total || 0), 0))}
+                </p>
+              </div>
             </div>
 
-            {/* PO section */}
+            {/* PO section — collapsible */}
             {upcomingPOs.length > 0 && (
-              <div>
-                <p style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Pre-Order Mendatang</p>
-                {upcomingPOs.map(order => (
-                  <div key={order.id} className="card" style={{ padding: 14, marginBottom: 8, borderLeft: '3px solid #fde047' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                          <p style={{ fontWeight: 800, fontSize: 14 }}>{order.nama}</p>
-                          <span className="po-tag"><Clock size={9} /> PO</span>
-                        </div>
-                        <p style={{ fontSize: 11, color: '#9ca3af' }}>Kirim: {order.tgl_kirim}</p>
-                      </div>
-                      <p style={{ fontWeight: 800, fontSize: 13 }}>{formatRupiah(order.total)}</p>
-                    </div>
-                    <div style={{ background: '#fefce8', borderRadius: 8, padding: '8px 10px', fontSize: 12, fontWeight: 600, color: '#78350f' }}>
-                      {(order.order_items || []).map((it, i) => <span key={i}>{it.qty}x {it.nama}{i < order.order_items.length - 1 ? ', ' : ''}</span>)}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                      <button onClick={() => sendWhatsApp(order)} style={{ flex: 1, background: '#f0fdf4', border: 'none', borderRadius: 9, padding: '8px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Send size={12} /> WA</button>
-                      {order.status_bayar !== 'Lunas' && <button onClick={() => confirmPayment(order.id)} style={{ flex: 1, background: '#f0fdf4', border: 'none', borderRadius: 9, padding: '8px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#16a34a' }}>Konfirmasi Bayar</button>}
-                      <button onClick={() => cancelOrder(order)} style={{ background: '#fef2f2', border: 'none', borderRadius: 9, padding: '8px 10px', cursor: 'pointer', color: '#ef4444', display: 'flex' }}><Trash2 size={14} /></button>
-                    </div>
+              <div style={{ background: 'white', border: '1.5px solid #fde68a', borderRadius: 16, overflow: 'hidden' }}>
+                <div className="collapsible-header" onClick={() => setPoCollapsed(p => !p)} style={{ padding: '12px 16px', background: '#fefce8' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Clock size={14} color="#d97706" />
+                    <p style={{ fontWeight: 800, fontSize: 13, color: '#92400e' }}>Pre-Order Mendatang</p>
+                    <span className="badge badge-yellow">{upcomingPOs.length}</span>
                   </div>
-                ))}
+                  {poCollapsed ? <ChevronDown size={16} color="#d97706" /> : <ChevronUp size={16} color="#d97706" />}
+                </div>
+                {!poCollapsed && (
+                  <div style={{ padding: '10px 14px' }}>
+                    {upcomingPOs.map(order => (
+                      <div key={order.id} style={{ padding: '12px 0', borderBottom: '1px solid #f3f4f6' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                              <p style={{ fontWeight: 800, fontSize: 14 }}>{order.nama}</p>
+                              <span className="po-tag"><Clock size={9} /> PO</span>
+                            </div>
+                            <p style={{ fontSize: 11, color: '#9ca3af' }}>Order: {friendlyDate(order.tgl_order)} · Kirim: {order.tgl_kirim}</p>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <p style={{ fontWeight: 800, fontSize: 13 }}>{formatRupiah(order.total)}</p>
+                            <button onClick={() => { setEditingOrder({ ...order, order_items: (order.order_items || []).map(it => ({ ...it })) }); setActiveModal('editOrder'); }} style={{ background: '#f3f4f6', border: 'none', borderRadius: 7, padding: 5, cursor: 'pointer', color: '#9ca3af', display: 'flex' }}><Edit2 size={12} /></button>
+                          </div>
+                        </div>
+                        <div style={{ background: '#fefce8', borderRadius: 8, padding: '8px 10px', fontSize: 12, fontWeight: 600, color: '#78350f', marginBottom: 8 }}>
+                          {(order.order_items || []).map((it, i) => <span key={i}>{it.qty}x {it.nama}{i < order.order_items.length - 1 ? ', ' : ''}</span>)}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button onClick={() => sendWhatsApp(order)} style={{ flex: 1, background: '#f0fdf4', border: 'none', borderRadius: 9, padding: '8px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Send size={12} /> WA</button>
+                          {order.status_bayar !== 'Lunas' && <button onClick={() => confirmPayment(order.id)} style={{ flex: 1, background: '#f0fdf4', border: 'none', borderRadius: 9, padding: '8px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#16a34a' }}>Konfirmasi Bayar</button>}
+                          <button onClick={() => cancelOrder(order)} style={{ background: '#fef2f2', border: 'none', borderRadius: 9, padding: '8px 10px', cursor: 'pointer', color: '#ef4444', display: 'flex' }}><Trash2 size={14} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1018,7 +1128,7 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
                     </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <span className={`badge ${order.status_bayar === 'Lunas' ? 'badge-green' : 'badge-red'}`}>{order.status_bayar}</span>
-                      <button onClick={() => { setEditingTransaction({ ...order, _newTglOrder: order.tgl_order, _newTglKirim: order.tgl_kirim }); setActiveModal('editTanggalOrder'); }} style={{ background: '#f3f4f6', border: 'none', borderRadius: 7, padding: 5, cursor: 'pointer', color: '#9ca3af', display: 'flex' }}><Edit2 size={12} /></button>
+                      <button onClick={() => { setEditingOrder({ ...order, order_items: (order.order_items || []).map(it => ({ ...it })) }); setActiveModal('editOrder'); }} style={{ background: '#f3f4f6', border: 'none', borderRadius: 7, padding: 5, cursor: 'pointer', color: '#9ca3af', display: 'flex' }}><Edit2 size={12} /></button>
                     </div>
                   </div>
                   <div style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
@@ -1045,7 +1155,6 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
         {/* ── JADWAL KIRIM ── */}
         {activeTab === 'jadwal' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
-            {/* Calendar toggle */}
             <button onClick={() => setCalendarOpen(p => !p)} style={{ width: '100%', background: 'white', border: '1.5px solid #e5e7eb', borderRadius: 14, padding: '11px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: '#111827', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Calendar size={15} color="#3b82f6" /> {selectedCalDay ? `Tanggal: ${selectedCalDay}` : 'Lihat Kalender'}</div>
               <ChevronDown size={15} style={{ transform: calendarOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', color: '#9ca3af' }} />
@@ -1062,21 +1171,20 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
                   {DAYS_ID.map((d, i) => <div key={i} style={{ textAlign: 'center', fontSize: 10, fontWeight: 800, color: '#9ca3af', padding: '3px 0' }}>{d}</div>)}
                 </div>
                 <div className="calendar-grid">
-                  {calDays.days.map((d, i) => {
-                    if (!d) return <div key={i} />;
-                    const ds = d.toISOString().split('T')[0];
+                  {calDays.days.map((day, i) => {
+                    if (!day) return <div key={i} />;
+                    const ds = dayToStr(day);
                     return (
                       <div key={i} className={`cal-day ${ds === todayStr() && ds !== selectedCalDay ? 'today' : ''} ${ds === selectedCalDay ? 'selected' : ''} ${calDays.orderDates.has(ds) ? 'has-order' : ''}`} onClick={() => setSelectedCalDay(ds === selectedCalDay ? null : ds)}>
-                        {d.getDate()}
+                        {day.d}
                       </div>
                     );
                   })}
                 </div>
-                {selectedCalDay && (
-                  <button onClick={() => { setCustomerForm(f => ({ ...f, tgl_kirim: selectedCalDay })); setOrderStep(1); setActiveModal('newOrder'); }} style={{ marginTop: 12, width: '100%', background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '10px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                    <Plus size={14} /> Tambah Order untuk {selectedCalDay}
-                  </button>
-                )}
+                {/* Always show add order button in calendar */}
+                <button onClick={() => { if (selectedCalDay) setCustomerForm(f => ({ ...f, tgl_kirim: selectedCalDay })); setOrderStep(1); setActiveModal('newOrder'); }} style={{ marginTop: 12, width: '100%', background: '#fde047', color: '#111827', border: 'none', borderRadius: 10, padding: '10px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <Plus size={14} /> {selectedCalDay ? `Tambah Order untuk ${selectedCalDay}` : 'Tambah Order Baru'}
+                </button>
               </div>
             )}
 
@@ -1149,12 +1257,12 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
               <div><label className="label">Domisili</label><input className="input" placeholder="Kota, Provinsi" value={profileForm.domisili} onChange={e => setProfileForm({ ...profileForm, domisili: e.target.value })} /></div>
               <button type="submit" disabled={isSaving} className="btn btn-dark" style={{ marginTop: 4 }}>{isSaving ? <Loader2 size={17} className="animate-spin" /> : 'Simpan Profil'}</button>
             </form>
-            <button onClick={handleLogout} className="btn btn-ghost" style={{ marginTop: 10, color: '#ef4444', borderColor: '#fecaca' }}><LogOut size={15} /> Keluar</button>
+            <button onClick={() => { setShowSettings(false); setShowLogoutConfirm(true); }} className="btn btn-ghost" style={{ marginTop: 10, color: '#ef4444', borderColor: '#fecaca' }}><LogOut size={15} /> Keluar</button>
           </div>
         </div>
       )}
 
-      {/* NEW ORDER — 2-step flow */}
+      {/* NEW ORDER */}
       {activeModal === 'newOrder' && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-sheet" onClick={e => e.stopPropagation()}>
@@ -1163,7 +1271,6 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
               <h3 style={{ fontSize: 18, fontWeight: 900 }}>Order Baru</h3>
               <button onClick={closeModal} style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
             </div>
-            {/* Step indicator */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, marginTop: 12 }}>
               {[1, 2].map(step => (
                 <React.Fragment key={step}>
@@ -1176,7 +1283,6 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
               </span>
             </div>
 
-            {/* Step 1: Customer details */}
             {orderStep === 1 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div><label className="label">Nama Pelanggan</label><input required className="input" placeholder="Nama pembeli" value={customerForm.nama} onChange={e => setCustomerForm({ ...customerForm, nama: e.target.value })} /></div>
@@ -1201,12 +1307,9 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
               </div>
             )}
 
-            {/* Step 2: Item selection */}
             {orderStep === 2 && (
               <form onSubmit={handleCheckout} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <p style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Untuk: <strong style={{ color: '#111827' }}>{customerForm.nama}</strong> · Kirim: {customerForm.tgl_kirim}</p>
-                
-                {/* Products to pick */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {inventory.filter(i => i.type === 'finished').map(prod => {
                     const inCart = cart.find(c => c.id === prod.id);
@@ -1233,8 +1336,6 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
                     <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>Belum ada produk siap jual</p>
                   )}
                 </div>
-
-                {/* Total bar */}
                 {cart.length > 0 && (
                   <div style={{ background: '#111827', borderRadius: 14, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                     <div>
@@ -1253,37 +1354,96 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
         </div>
       )}
 
-      {/* PEMBELIAN */}
+      {/* PEMBELIAN (multi-item form) */}
       {activeModal === 'beli' && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-sheet" onClick={e => e.stopPropagation()}>
             <div className="modal-handle" />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}><h3 style={{ fontSize: 18, fontWeight: 900 }}>Tambah Pembelian</h3><button onClick={closeModal} style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', display: 'flex' }}><X size={16} /></button></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 900 }}>Tambah Pembelian</h3>
+              <button onClick={closeModal} style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
+            </div>
             <form onSubmit={handleAddPurchase} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div><label className="label">Nama Barang</label><input required className="input" placeholder="Tepung Terigu" value={purchaseForm.nama_barang} onChange={e => setPurchaseForm({ ...purchaseForm, nama_barang: e.target.value })} /></div>
-              <div><label className="label">Supplier / Toko</label><input className="input" placeholder="Dari mana belinya?" value={purchaseForm.supplier} onChange={e => setPurchaseForm({ ...purchaseForm, supplier: e.target.value })} /></div>
+              {/* Shared: supplier + date */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div><label className="label">Jumlah</label><input required type="number" className="input" placeholder="0" value={purchaseForm.jumlah} onChange={e => setPurchaseForm({ ...purchaseForm, jumlah: e.target.value })} /></div>
-                <div><label className="label">Satuan</label><select className="input" value={purchaseForm.satuan} onChange={e => setPurchaseForm({ ...purchaseForm, satuan: e.target.value })}>{['pcs','kg','gr','liter','ml','pak','lusin','karton'].map(s => <option key={s}>{s}</option>)}</select></div>
+                <div><label className="label">Supplier / Toko</label><input className="input" placeholder="Dari mana belinya?" value={purchaseForm.supplier} onChange={e => setPurchaseForm({ ...purchaseForm, supplier: e.target.value })} /></div>
+                <div><label className="label">Tanggal</label><input type="date" className="input" value={purchaseForm.tanggal} onChange={e => setPurchaseForm({ ...purchaseForm, tanggal: e.target.value })} /></div>
               </div>
-              <div><label className="label">Harga Satuan (Rp)</label><input required type="number" className="input" placeholder="0" value={purchaseForm.harga_satuan} onChange={e => setPurchaseForm({ ...purchaseForm, harga_satuan: e.target.value })} /></div>
-              <div><label className="label">Tanggal</label><input type="date" className="input" value={purchaseForm.tanggal} onChange={e => setPurchaseForm({ ...purchaseForm, tanggal: e.target.value })} /></div>
+
+              {/* Item rows */}
+              <label className="label" style={{ marginBottom: 4 }}>Barang yang Dibeli</label>
+              {purchaseForm.items.map((item, i) => (
+                <div key={i} className="purchase-item-row">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: '#6b7280' }}>Barang {i + 1}</p>
+                    {purchaseForm.items.length > 1 && (
+                      <button type="button" onClick={() => setPurchaseForm({ ...purchaseForm, items: purchaseForm.items.filter((_, idx) => idx !== i) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2, display: 'flex' }}><X size={14} /></button>
+                    )}
+                  </div>
+                  <div><label className="label">Nama Barang</label>
+                    <input required className="input" placeholder="Tepung Terigu" value={item.nama_barang}
+                      onChange={e => { const n = [...purchaseForm.items]; n[i].nama_barang = e.target.value; setPurchaseForm({ ...purchaseForm, items: n }); }} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
+                    <div><label className="label">Jumlah</label>
+                      <input required type="number" className="input" placeholder="0" value={item.jumlah}
+                        onChange={e => { const n = [...purchaseForm.items]; n[i].jumlah = e.target.value; setPurchaseForm({ ...purchaseForm, items: n }); }} />
+                    </div>
+                    <div><label className="label">Satuan</label>
+                      <select className="input" value={item.satuan} onChange={e => { const n = [...purchaseForm.items]; n[i].satuan = e.target.value; setPurchaseForm({ ...purchaseForm, items: n }); }}>
+                        {['pcs','kg','gr','liter','ml','pak','lusin','karton'].map(s => <option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div><label className="label">Harga/Satuan</label>
+                      <input required type="number" className="input" placeholder="0" value={item.harga_satuan}
+                        onChange={e => { const n = [...purchaseForm.items]; n[i].harga_satuan = e.target.value; setPurchaseForm({ ...purchaseForm, items: n }); }} />
+                    </div>
+                  </div>
+                  {item.jumlah && item.harga_satuan && (
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', marginTop: 6 }}>
+                      Subtotal: {formatRupiah(Number(item.jumlah) * Number(item.harga_satuan))}
+                    </p>
+                  )}
+                </div>
+              ))}
+
+              {/* Total */}
+              {purchaseForm.items.some(it => it.jumlah && it.harga_satuan) && (
+                <div style={{ background: '#f9fafb', borderRadius: 12, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 14 }}>
+                  <span>Total Pembelian</span>
+                  <span>{formatRupiah(purchaseForm.items.reduce((a, it) => a + (Number(it.jumlah) || 0) * (Number(it.harga_satuan) || 0), 0))}</span>
+                </div>
+              )}
+
+              <button type="button" onClick={() => setPurchaseForm({ ...purchaseForm, items: [...purchaseForm.items, emptyPurchaseItem()] })} style={{ background: '#eff6ff', color: '#3b82f6', border: 'none', borderRadius: 10, padding: '9px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Plus size={14} /> Tambah Barang Lain
+              </button>
               <button type="submit" disabled={isSaving} className="btn btn-dark" style={{ marginTop: 4 }}>{isSaving ? <Loader2 size={17} className="animate-spin" /> : 'Simpan Pembelian'}</button>
             </form>
           </div>
         </div>
       )}
 
-      {/* EDIT TANGGAL PEMBELIAN */}
-      {activeModal === 'editTanggalBeli' && editingTransaction && (
+      {/* EDIT PEMBELIAN */}
+      {activeModal === 'editPembelian' && editingPurchase && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-sheet" onClick={e => e.stopPropagation()}>
             <div className="modal-handle" />
-            <h3 style={{ fontSize: 17, fontWeight: 900, marginBottom: 16 }}>Edit Tanggal Pembelian</h3>
-            <p style={{ fontWeight: 600, marginBottom: 14, fontSize: 14 }}>{editingTransaction.nama_barang}</p>
-            <form onSubmit={handleEditPurchaseDate} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div><label className="label">Tanggal</label><input type="date" className="input" value={editingTransaction._newDate} onChange={e => setEditingTransaction({ ...editingTransaction, _newDate: e.target.value })} /></div>
-              <button type="submit" disabled={isSaving} className="btn btn-dark">{isSaving ? '...' : 'Simpan'}</button>
+            <h3 style={{ fontSize: 17, fontWeight: 900, marginBottom: 16 }}>Edit Pembelian</h3>
+            <form onSubmit={handleEditPurchase} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div><label className="label">Nama Barang</label>
+                <input required className="input" value={editingPurchase._newNama} onChange={e => setEditingPurchase({ ...editingPurchase, _newNama: e.target.value })} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div><label className="label">Jumlah</label>
+                  <input required type="number" className="input" value={editingPurchase._newJumlah} onChange={e => setEditingPurchase({ ...editingPurchase, _newJumlah: e.target.value })} />
+                </div>
+                <div><label className="label">Tanggal</label>
+                  <input type="date" className="input" value={editingPurchase._newDate} onChange={e => setEditingPurchase({ ...editingPurchase, _newDate: e.target.value })} />
+                </div>
+              </div>
+              <p style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>Harga satuan: {formatRupiah(editingPurchase.harga_satuan)} — tidak dapat diubah</p>
+              <button type="submit" disabled={isSaving} className="btn btn-dark">{isSaving ? '...' : 'Simpan Perubahan'}</button>
             </form>
           </div>
         </div>
@@ -1294,36 +1454,25 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-sheet" onClick={e => e.stopPropagation()}>
             <div className="modal-handle" />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}><h3 style={{ fontSize: 18, fontWeight: 900 }}>Tambah Resep</h3><button onClick={closeModal} style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', display: 'flex' }}><X size={16} /></button></div>
-            <form onSubmit={handleAddRecipe} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div><label className="label">Nama Produk Output</label><input required className="input" placeholder="Roti Tawar" value={recipeForm.nama} onChange={e => setRecipeForm({ ...recipeForm, nama: e.target.value })} /></div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                <div><label className="label">Output/Batch</label><input required type="number" className="input" value={recipeForm.jumlah_output} onChange={e => setRecipeForm({ ...recipeForm, jumlah_output: e.target.value })} /></div>
-                <div><label className="label">Satuan</label><select className="input" value={recipeForm.satuan_output} onChange={e => setRecipeForm({ ...recipeForm, satuan_output: e.target.value })}>{['pcs','loyang','lusin','pak','kg','gr'].map(s => <option key={s}>{s}</option>)}</select></div>
-                <div><label className="label">Jenis Output</label>
-                  <select className="input" value={recipeForm.output_type || 'finished'} onChange={e => setRecipeForm({ ...recipeForm, output_type: e.target.value })}>
-                    <option value="semi">½ Jadi</option>
-                    <option value="finished">Produk</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="label">Bahan-bahan</label>
-                {recipeForm.ingredients.map((ing, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                    <select required className="input" style={{ flex: 2 }} value={ing.nama_bahan} onChange={e => { const n = [...recipeForm.ingredients]; n[i].nama_bahan = e.target.value; setRecipeForm({ ...recipeForm, ingredients: n }); }}>
-                      <option value="">Pilih Bahan</option>
-                      {inventory.filter(it => it.type === 'raw' || it.type === 'semi').map(it => <option key={it.id} value={it.nama}>{it.nama} ({INVENTORY_TYPES[it.type]?.label})</option>)}
-                    </select>
-                    <input required type="number" placeholder="Qty" className="input" style={{ width: 64 }} value={ing.qty} onChange={e => { const n = [...recipeForm.ingredients]; n[i].qty = e.target.value; setRecipeForm({ ...recipeForm, ingredients: n }); }} />
-                    <select className="input" style={{ width: 72 }} value={ing.satuan} onChange={e => { const n = [...recipeForm.ingredients]; n[i].satuan = e.target.value; setRecipeForm({ ...recipeForm, ingredients: n }); }}>{['pcs','kg','gr','liter','ml'].map(s => <option key={s}>{s}</option>)}</select>
-                    {recipeForm.ingredients.length > 1 && <button type="button" onClick={() => setRecipeForm({ ...recipeForm, ingredients: recipeForm.ingredients.filter((_, idx) => idx !== i) })} style={{ background: '#fef2f2', border: 'none', borderRadius: 9, padding: '0 8px', cursor: 'pointer', color: '#ef4444' }}><X size={13} /></button>}
-                  </div>
-                ))}
-                <button type="button" onClick={() => setRecipeForm({ ...recipeForm, ingredients: [...recipeForm.ingredients, { nama_bahan: '', qty: '', satuan: 'pcs' }] })} style={{ background: '#eff6ff', color: '#3b82f6', border: 'none', borderRadius: 9, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Tambah Bahan</button>
-              </div>
-              <button type="submit" disabled={isSaving} className="btn btn-dark">{isSaving ? <Loader2 size={17} className="animate-spin" /> : 'Simpan Resep'}</button>
-            </form>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 900 }}>Tambah Resep</h3>
+              <button onClick={closeModal} style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
+            </div>
+            <RecipeFormFields form={recipeForm} setForm={setRecipeForm} inventory={inventory} isSaving={isSaving} onSubmit={handleAddRecipe} submitLabel="Simpan Resep" />
+          </div>
+        </div>
+      )}
+
+      {/* EDIT RESEP */}
+      {activeModal === 'editResep' && editingRecipe && (
+        <div className="modal-overlay" onClick={closeModal}>
+          <div className="modal-sheet" onClick={e => e.stopPropagation()}>
+            <div className="modal-handle" />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 900 }}>Edit Resep</h3>
+              <button onClick={closeModal} style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
+            </div>
+            <RecipeFormFields form={editingRecipe} setForm={setEditingRecipe} inventory={inventory} isSaving={isSaving} onSubmit={handleEditRecipe} submitLabel="Simpan Perubahan" />
           </div>
         </div>
       )}
@@ -1333,7 +1482,10 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-sheet" onClick={e => e.stopPropagation()}>
             <div className="modal-handle" />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}><h3 style={{ fontSize: 18, fontWeight: 900 }}>Mulai Produksi</h3><button onClick={closeModal} style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', display: 'flex' }}><X size={16} /></button></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 900 }}>Mulai Produksi</h3>
+              <button onClick={closeModal} style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
+            </div>
             <form onSubmit={handleProduction} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div><label className="label">Produk / Resep</label>
                 <select required className="input" value={prodForm.recipe_id} onChange={e => setProdForm({ ...prodForm, recipe_id: e.target.value })}>
@@ -1372,17 +1524,40 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
         </div>
       )}
 
-      {/* EDIT TANGGAL ORDER */}
-      {activeModal === 'editTanggalOrder' && editingTransaction && (
+      {/* EDIT ORDER (dates + items) */}
+      {activeModal === 'editOrder' && editingOrder && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-sheet" onClick={e => e.stopPropagation()}>
             <div className="modal-handle" />
-            <h3 style={{ fontSize: 17, fontWeight: 900, marginBottom: 16 }}>Edit Tanggal Pesanan</h3>
-            <p style={{ fontWeight: 600, marginBottom: 14, fontSize: 14 }}>{editingTransaction.nama}</p>
-            <form onSubmit={handleEditOrderDates} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div><label className="label">Tanggal Order</label><input type="date" className="input" value={editingTransaction._newTglOrder} onChange={e => setEditingTransaction({ ...editingTransaction, _newTglOrder: e.target.value })} /></div>
-              <div><label className="label">Tanggal Kirim</label><input type="date" className="input" value={editingTransaction._newTglKirim} onChange={e => setEditingTransaction({ ...editingTransaction, _newTglKirim: e.target.value })} /></div>
-              <button type="submit" disabled={isSaving} className="btn btn-dark">{isSaving ? '...' : 'Simpan'}</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 17, fontWeight: 900 }}>Edit Pesanan</h3>
+              <button onClick={closeModal} style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
+            </div>
+            <p style={{ fontWeight: 600, marginBottom: 14, fontSize: 14 }}>{editingOrder.nama}</p>
+            <form onSubmit={handleEditOrder} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div><label className="label">Tanggal Order</label><input type="date" className="input" value={editingOrder.tgl_order} onChange={e => setEditingOrder({ ...editingOrder, tgl_order: e.target.value })} /></div>
+                <div><label className="label">Tanggal Kirim</label><input type="date" className="input" value={editingOrder.tgl_kirim} onChange={e => setEditingOrder({ ...editingOrder, tgl_kirim: e.target.value })} /></div>
+              </div>
+              <label className="label">Item Pesanan</label>
+              {(editingOrder.order_items || []).map((it, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ flex: 2, fontSize: 13, fontWeight: 600, background: '#f9fafb', borderRadius: 10, padding: '10px 14px' }}>{it.nama}</div>
+                  <div style={{ flex: 1 }}>
+                    <input type="number" min={1} className="input" value={it.qty}
+                      onChange={e => {
+                        const items = editingOrder.order_items.map((x, j) => j === i ? { ...x, qty: Number(e.target.value) } : x);
+                        setEditingOrder({ ...editingOrder, order_items: items });
+                      }} />
+                  </div>
+                  <button type="button" onClick={() => setEditingOrder({ ...editingOrder, order_items: editingOrder.order_items.filter((_, j) => j !== i) })} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: 8, cursor: 'pointer', color: '#ef4444', display: 'flex' }}><X size={13} /></button>
+                </div>
+              ))}
+              <div style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 13 }}>
+                <span>Total Baru</span>
+                <span>{formatRupiah((editingOrder.order_items || []).reduce((a, it) => a + it.qty * (it.harga || 0), 0))}</span>
+              </div>
+              <button type="submit" disabled={isSaving} className="btn btn-dark">{isSaving ? '...' : 'Simpan Perubahan'}</button>
             </form>
           </div>
         </div>
@@ -1406,6 +1581,52 @@ const ERPApp = ({ user, profile: initialProfile, onProfileUpdate }) => {
     </div>
   );
 };
+
+// ── Shared recipe form fields component (used for both add and edit)
+const RecipeFormFields = ({ form, setForm, inventory, isSaving, onSubmit, submitLabel }) => (
+  <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div><label className="label">Nama Produk Output</label><input required className="input" placeholder="Roti Tawar" value={form.nama} onChange={e => setForm({ ...form, nama: e.target.value })} /></div>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+      <div><label className="label">Output/Batch</label><input required type="number" className="input" value={form.jumlah_output} onChange={e => setForm({ ...form, jumlah_output: e.target.value })} /></div>
+      <div><label className="label">Satuan</label><select className="input" value={form.satuan_output} onChange={e => setForm({ ...form, satuan_output: e.target.value })}>{['pcs','loyang','lusin','pak','kg','gr'].map(s => <option key={s}>{s}</option>)}</select></div>
+      <div><label className="label">Jenis Output</label>
+        <select className="input" value={form.output_type || 'finished'} onChange={e => setForm({ ...form, output_type: e.target.value })}>
+          <option value="semi">½ Jadi</option>
+          <option value="finished">Produk</option>
+        </select>
+      </div>
+    </div>
+    <div>
+      <label className="label">Bahan-bahan</label>
+      {(form.recipe_ingredients || form.ingredients || []).map((ing, i) => {
+        const items = form.recipe_ingredients || form.ingredients;
+        const key = form.recipe_ingredients ? 'recipe_ingredients' : 'ingredients';
+        return (
+          <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            <select required className="input" style={{ flex: 2 }} value={ing.nama_bahan}
+              onChange={e => { const n = [...items]; n[i] = { ...n[i], nama_bahan: e.target.value }; setForm({ ...form, [key]: n }); }}>
+              <option value="">Pilih Bahan</option>
+              {inventory.filter(it => it.type === 'raw' || it.type === 'semi').map(it => <option key={it.id} value={it.nama}>{it.nama}</option>)}
+            </select>
+            <input required type="number" placeholder="Qty" className="input" style={{ width: 64 }} value={ing.qty}
+              onChange={e => { const n = [...items]; n[i] = { ...n[i], qty: e.target.value }; setForm({ ...form, [key]: n }); }} />
+            <select className="input" style={{ width: 72 }} value={ing.satuan}
+              onChange={e => { const n = [...items]; n[i] = { ...n[i], satuan: e.target.value }; setForm({ ...form, [key]: n }); }}>
+              {['pcs','kg','gr','liter','ml','lusin'].map(s => <option key={s}>{s}</option>)}
+            </select>
+            {items.length > 1 && <button type="button" onClick={() => { const n = items.filter((_, idx) => idx !== i); setForm({ ...form, [key]: n }); }} style={{ background: '#fef2f2', border: 'none', borderRadius: 9, padding: '0 8px', cursor: 'pointer', color: '#ef4444' }}><X size={13} /></button>}
+          </div>
+        );
+      })}
+      <button type="button" onClick={() => {
+        const key = form.recipe_ingredients ? 'recipe_ingredients' : 'ingredients';
+        const items = form[key] || [];
+        setForm({ ...form, [key]: [...items, { nama_bahan: '', qty: '', satuan: 'pcs' }] });
+      }} style={{ background: '#eff6ff', color: '#3b82f6', border: 'none', borderRadius: 9, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Tambah Bahan</button>
+    </div>
+    <button type="submit" disabled={isSaving} className="btn btn-dark">{isSaving ? <Loader2 size={17} className="animate-spin" /> : submitLabel}</button>
+  </form>
+);
 
 // ─── ROOT APP ──────────────────────────────────────────────────────────────────
 const App = () => {
