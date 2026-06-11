@@ -4,7 +4,8 @@ A full-stack mobile web app for home-based food businesses in Indonesia.
 Covers the complete operational cycle: procurement, production, sales, delivery scheduling, and financial reporting, in a single tool that requires no accounting knowledge to use.
 
 Documentations and Live Demo links are coming soon.
-<!--**[▶ Live Demo](link)** · **[Portfolio Brief](link)** · **[BRD v1.2](link)** · **[FSD v1.1](link)**-->
+**[▶ Live Demo](https://ds30mins.github.io/umkm-erp/)** · 
+<!--**[Portfolio Brief](link)** · **[BRD v1.2](link)** · **[FSD v1.1](link)**-->
 
 ---
 
